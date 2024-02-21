@@ -1,12 +1,17 @@
 import time
 import numpy as np
-import cupy as cp
+import importlib.util
+if importlib.util.find_spec('cupy') is not None:
+    import cupy as cp
+    cupy_available = True
+else:
+    cupy_available = False
 import torch
 
 # Create large matrices
-size = 20000
-A_np = np.random.rand(size, size)
-B_np = np.random.rand(size, size)
+size = 10000
+A_np = np.random.rand(size, size).astype(np.float32)
+B_np = np.random.rand(size, size).astype(np.float32)
 
 # NumPy (CPU)
 print(f"NumPy (CPU): Estimated time of execution: {3.3376 * (size / 10000) ** 3:.2f} seconds")
@@ -16,23 +21,25 @@ numpy_time = time.time() - start
 print(f"NumPy (CPU) time: {numpy_time:.4f}")
 
 # Check for GPU availability with CuPy
-try:
-    cp.cuda.runtime.getDeviceCount()
-    # CuPy (GPU)
-    A_cp = cp.asarray(A_np)
-    B_cp = cp.asarray(B_np)
-    print(f"CuPy (GPU): Estimated time of execution: {1.599 * (size / 10000):.2f} seconds")
-    start = time.time()
-    C_cp = cp.dot(A_cp, B_cp)
-    cupy_time = time.time() - start
-    
-    # Compare the results
-    assert cp.allclose(C_np, C_cp), "The results from NumPy and CuPy are NOT close!"
-    
-    print(f"CuPy (GPU) time: {cupy_time:.4f}")
+if cupy_available:
+    try:
+        cp.cuda.runtime.getDeviceCount()
+        # CuPy (GPU)
+        A_cp = cp.asarray(A_np)
+        B_cp = cp.asarray(B_np)
+        print(f"CuPy (GPU): Estimated time of execution: {1.599 * (size / 10000):.2f} seconds")
+        start = time.time()
+        C_cp = cp.dot(A_cp, B_cp)
+        cupy_time = time.time() - start
 
-except cp.cuda.runtime.CUDARuntimeError:
-    print("No compatible GPU is available for CuPy.")
+        # Compare the results
+        assert cp.allclose(C_np, C_cp), "The results from NumPy and CuPy are NOT close!"
+
+        print(f"CuPy (GPU) time: {cupy_time:.4f}")
+
+    except cp.cuda.runtime.CUDARuntimeError:
+        print("No compatible GPU is available for CuPy.")
+
 
 # PyTorch (CPU)
 A_pt_cpu = torch.from_numpy(A_np)
@@ -47,7 +54,9 @@ print(f"PyTorch (CPU) time: {pytorch_cpu_time:.4f}")
 
 start = time.time()
 # Compare the results
-assert np.allclose(C_np, C_pt_cpu.numpy()), "The results from NumPy and PyTorch (CPU) are NOT close!"
+diff = np.abs(C_np - C_pt_cpu.numpy())
+print("max difference: ", np.max(diff))
+assert np.allclose(C_np, C_pt_cpu.numpy(), rtol=0.0001), "The results from NumPy and PyTorch (CPU) are NOT close!"
 print("Time for np.allclose():", time.time() - start)
 
 # Check for GPU availability with PyTorch
@@ -73,10 +82,14 @@ if not device_name == 'cpu':
     print(f"PyTorch (GPU) time: {pytorch_gpu_time:.4f}")
 
     C_np_torch = torch.from_numpy(C_np).to(device)
+    
+    diff = torch.abs(C_np_torch - C_pt_gpu)
+    
+    print("max difference:", torch.max(diff).item())
 
     start = time.time()
     # Compare the results
-    assert torch.allclose(C_np_torch, C_pt_gpu), "The results from NumPy and PyTorch (GPU) are NOT close!"
+    assert torch.allclose(C_np_torch, C_pt_gpu, rtol = 0.0001), "The results from NumPy and PyTorch (GPU) are NOT close!"
     print("Time for torch.allclose():", time.time() - start)
 
     if pytorch_gpu_time == 0:
